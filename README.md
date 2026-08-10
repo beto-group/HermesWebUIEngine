@@ -52,6 +52,14 @@ The compiled bundle is output to `dist/bundle.es.js` with integrated dynamic CSS
 
 ---
 
+## 🙏 Acknowledgments
+
+- **NousResearch (Hermes Agent)**: [https://github.com/NousResearch](https://github.com/NousResearch)
+- **Hermes WebUI Ecosystem**: [https://github.com/NousResearch/Hermes-Agent](https://github.com/NousResearch/Hermes-Agent)
+
+---
+
 ## 📄 License
 
-MIT © [Beto Group](https://github.com/beto-group)
+MIT © [Beto Group](https://github.com/beto-group) (Portions © NousResearch & Hermes WebUI Contributors)
+

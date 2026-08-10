@@ -1,0 +1,8 @@
+{
+  "name": "Hermes WebUI Engine",
+  "version": "1.0.0",
+  "entrypoint": "dist/bundle.es.js",
+  "entry": "dist/bundle.es.js",
+  "icon": "layout-grid",
+  "description": "Sovereign Hermes WebUI control surface, daemon supervisor, and mobile bridge."
+}

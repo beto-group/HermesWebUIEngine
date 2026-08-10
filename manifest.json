@@ -1,0 +1,9 @@
+{
+  "id": "hermes-webui-engine",
+  "name": "Hermes WebUI Engine",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Sovereign Hermes WebUI control surface, daemon supervisor, and mobile bridge.",
+  "author": "Beto Group",
+  "isDesktopOnly": false
+}

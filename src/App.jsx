@@ -37,6 +37,8 @@ export default function HermesWebUIEngineApp() {
   const [iframeKey, setIframeKey] = useState(1);
   const hideTimeoutRef = useRef(null);
   const isMobile = isMobileOrCapacitor();
+  const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
+  const failCountRef = useRef(0);
 
   const checkHealth = useCallback(async () => {
     setStatus(prev => ({ ...prev, checking: true }));
@@ -53,12 +55,24 @@ export default function HermesWebUIEngineApp() {
       }
     }
 
-    setStatus({ online: res.online, checking: false, statusCode: res.statusCode, lastCheck: Date.now() });
-  }, [config, isMobile]);
+    if (res.online) {
+      failCountRef.current = 0;
+      setHasConnectedOnce(true);
+      setStatus({ online: true, checking: false, statusCode: res.statusCode, lastCheck: Date.now() });
+    } else {
+      failCountRef.current += 1;
+      // Only mark offline if 3 consecutive probes fail (avoids temporary reload flashes)
+      if (failCountRef.current >= 3 || !hasConnectedOnce) {
+        setStatus({ online: false, checking: false, statusCode: res.statusCode, lastCheck: Date.now() });
+      } else {
+        setStatus(prev => ({ ...prev, checking: false, lastCheck: Date.now() }));
+      }
+    }
+  }, [config, isMobile, hasConnectedOnce]);
 
   useEffect(() => {
     checkHealth();
-    const interval = setInterval(checkHealth, 8000);
+    const interval = setInterval(checkHealth, 12000);
     return () => clearInterval(interval);
   }, [checkHealth]);
 
@@ -290,28 +304,51 @@ export default function HermesWebUIEngineApp() {
         </div>
       </div>
 
-      {/* Main Content: Iframe or Offline Diagnostic Surface */}
-      {status.online ? (
-        <iframe 
-          key={iframeKey}
-          src={targetUrl}
-          className="hermes-iframe-full"
-          title="Hermes WebUI"
-          allow="clipboard-read; clipboard-write; microphone; camera; display-capture"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            margin: 0,
-            padding: 0,
-            display: 'block',
-            background: '#030712',
-            zIndex: 1
-          }}
-        />
+      {/* Main Content: Iframe remains permanently mounted once connected */}
+      {(status.online || hasConnectedOnce) ? (
+        <>
+          <iframe 
+            key={iframeKey}
+            src={targetUrl}
+            className="hermes-iframe-full"
+            title="Hermes WebUI"
+            allow="clipboard-read; clipboard-write; microphone; camera; display-capture"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              border: 'none',
+              margin: 0,
+              padding: 0,
+              display: 'block',
+              background: '#030712',
+              zIndex: 1
+            }}
+          />
+          {!status.online && (
+            <div style={{
+              position: 'absolute',
+              bottom: '20px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: 'rgba(239, 68, 68, 0.9)',
+              color: '#ffffff',
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: '700',
+              zIndex: 9999,
+              boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <AlertCircle size={14} /> Reconnecting to Hermes...
+            </div>
+          )}
+        </>
       ) : (
         <div style={{
           flex: 1,

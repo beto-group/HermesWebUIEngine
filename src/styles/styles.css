@@ -47,14 +47,14 @@
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
-  background: rgba(10, 18, 30, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 18, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-top: none;
   border-radius: 0 0 12px 12px;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-  z-index: 101;
+  z-index: 1000;
   transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease;
   opacity: 0;
   pointer-events: none;
@@ -62,9 +62,9 @@
 }
 
 .hermes-floating-navbar.visible {
-  transform: translateX(-50%) translateY(0);
-  opacity: 1;
-  pointer-events: auto;
+  transform: translateX(-50%) translateY(0) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
 }
 
 /* Top Edge Subtle Indicator */
@@ -110,18 +110,16 @@
 
 .status-dot.offline {
   background: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
 }
 
 .status-dot.checking {
   background: #f59e0b;
-  box-shadow: 0 0 8px #f59e0b;
-  animation: pulse 1.5s infinite;
+  animation: pulse 1s infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
 }
 
 .hermes-nav-actions {
@@ -134,72 +132,84 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
+  color: #f1f5f9;
   font-size: 11px;
   font-weight: 500;
+  text-decoration: none;
   cursor: pointer;
   transition: all 0.15s ease;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
-  color: #cbd5e1;
-  text-decoration: none;
+  line-height: 1;
 }
 
-.hermes-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
+.hermes-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
   color: #ffffff;
 }
 
-.hermes-btn.primary {
-  background: rgba(16, 185, 129, 0.18);
-  border-color: rgba(16, 185, 129, 0.5);
-  color: #34d399;
-}
-
-.hermes-btn.primary:hover {
-  background: rgba(16, 185, 129, 0.3);
-  color: #10b981;
-}
-
-.hermes-btn.danger {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #f87171;
-}
-
-.hermes-btn.danger:hover {
-  background: rgba(239, 68, 68, 0.3);
-}
-
 .hermes-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-/* Settings Modal */
+.hermes-btn.primary {
+  background: #10b981;
+  color: #030712;
+  border-color: #10b981;
+  font-weight: 600;
+}
+
+.hermes-btn.primary:hover:not(:disabled) {
+  background: #059669;
+}
+
+.hermes-btn.danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+.hermes-btn.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fef2f2;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Modal Dialog */
 .hermes-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: 2000;
   padding: 16px;
 }
 
 .hermes-modal-content {
   width: 100%;
-  max-width: 440px;
-  background: #0c1524;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  maxWidth: 380px;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
   padding: 20px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
-  color: #e2e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+  color: #f8fafc;
 }
 
 .hermes-modal-header {
@@ -207,29 +217,32 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .hermes-form-group {
-  margin-bottom: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  margin-bottom: 12px;
 }
 
-.hermes-form-label {
+.hermes-label {
+  display: block;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   color: #94a3b8;
+  margin-bottom: 5px;
 }
 
 .hermes-input {
   width: 100%;
-  padding: 7px 10px;
-  background: rgba(15, 23, 42, 0.6);
+  padding: 8px 12px;
+  background: #030712;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: 8px;
   color: #f8fafc;
-  font-size: 12px;
+  font-size: 13px;
   outline: none;
   box-sizing: border-box;
 }

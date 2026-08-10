@@ -23,7 +23,8 @@ import {
   stopServer, 
   restartServer,
   isMobileOrCapacitor,
-  getDefaultHost
+  getDefaultHost,
+  getTargetUrl
 } from './utils/serverBridge.js';
 import './styles/styles.css';
 
@@ -39,15 +40,15 @@ export default function HermesWebUIEngineApp() {
 
   const checkHealth = useCallback(async () => {
     setStatus(prev => ({ ...prev, checking: true }));
-    let res = await checkServerHealth(config.host, config.port);
+    let res = await checkServerHealth(config);
     
     // If on mobile/Capacitor and 127.0.0.1 failed, try 10.0.2.2 automatically
-    if (!res.online && isMobile && config.host === '127.0.0.1') {
-      const fallbackRes = await checkServerHealth('10.0.2.2', config.port);
+    if (!res.online && isMobile && config.host === '127.0.0.1' && !config.customUrl) {
+      const fallbackCfg = { ...config, host: '10.0.2.2' };
+      const fallbackRes = await checkServerHealth(fallbackCfg);
       if (fallbackRes.online) {
-        const newCfg = { ...config, host: '10.0.2.2' };
-        setConfig(newCfg);
-        saveConfig(newCfg);
+        setConfig(fallbackCfg);
+        saveConfig(fallbackCfg);
         res = fallbackRes;
       }
     }
@@ -154,7 +155,7 @@ export default function HermesWebUIEngineApp() {
     checkHealth();
   };
 
-  const targetUrl = `http://${config.host}:${config.port}`;
+  const targetUrl = getTargetUrl(config);
 
   return (
     <div 
@@ -217,7 +218,7 @@ export default function HermesWebUIEngineApp() {
           <Server size={14} color="#10b981" />
           <span className={`status-dot ${status.checking ? 'checking' : (status.online ? 'online' : 'offline')}`} />
           <span style={{ fontSize: '11px', fontWeight: '600' }}>
-            {status.online ? `Hermes (${config.host}:${config.port})` : 'Offline'}
+            {status.online ? `Hermes (${targetUrl})` : 'Offline'}
           </span>
         </div>
 
@@ -343,7 +344,7 @@ export default function HermesWebUIEngineApp() {
           </h2>
           
           <p style={{ fontSize: '13px', color: '#94a3b8', maxWidth: '380px', margin: '0 0 24px 0', lineHeight: '1.5' }}>
-            Could not reach Hermes WebUI at <code style={{ color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>{config.host}:{config.port}</code>.
+            Could not reach Hermes WebUI at <code style={{ color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>{targetUrl}</code>.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '300px' }}>
@@ -479,6 +480,7 @@ export default function HermesWebUIEngineApp() {
 
 function SettingsModal({ config, onClose, onSave }) {
   const [formData, setFormData] = useState({ ...config });
+  const previewUrl = getTargetUrl(formData);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -493,7 +495,7 @@ function SettingsModal({ config, onClose, onSave }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Globe size={16} color="#10b981" />
             <span style={{ fontSize: 14, fontWeight: 600, color: '#f8fafc' }}>
-              Hermes Host & Port Settings
+              Hermes Connection & Protocol Settings
             </span>
           </div>
           <button className="hermes-btn" onClick={onClose} style={{ padding: 3 }}>
@@ -502,47 +504,124 @@ function SettingsModal({ config, onClose, onSave }) {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+          {/* Target URL Live Preview Banner */}
+          <div style={{
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: '10px',
+            padding: '10px 12px',
+            marginBottom: '16px'
+          }}>
+            <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+              Active Target URL Preview
+            </div>
+            <div style={{ fontSize: '13px', color: '#34d399', fontWeight: '700', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+              {previewUrl}
+            </div>
+          </div>
+
+          {/* Quick Preset Buttons */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
             <button 
               type="button" 
               className="hermes-btn" 
               style={{ flex: 1, padding: 6, fontSize: 11 }}
-              onClick={() => setFormData(prev => ({ ...prev, host: '127.0.0.1' }))}
+              onClick={() => setFormData(prev => ({ ...prev, customUrl: '', host: '127.0.0.1', port: '8787', protocol: 'http' }))}
             >
-              <Monitor size={12} style={{ marginRight: 4 }} /> 127.0.0.1
+              <Monitor size={12} style={{ marginRight: 4 }} /> Localhost (8787)
             </button>
             <button 
               type="button" 
               className="hermes-btn" 
               style={{ flex: 1, padding: 6, fontSize: 11 }}
-              onClick={() => setFormData(prev => ({ ...prev, host: '10.0.2.2' }))}
+              onClick={() => setFormData(prev => ({ ...prev, customUrl: '', host: '10.0.2.2', port: '8787', protocol: 'http' }))}
             >
               <Smartphone size={12} style={{ marginRight: 4 }} /> 10.0.2.2 (AVD)
             </button>
           </div>
 
+          {/* Protocol Toggle */}
           <div className="hermes-form-group">
-            <label className="hermes-label">Host IP / Domain</label>
-            <input 
-              type="text" 
-              className="hermes-input"
-              value={formData.host}
-              onChange={e => setFormData(prev => ({ ...prev, host: e.target.value }))}
-              placeholder="127.0.0.1 or 10.0.2.2"
-              required
-            />
+            <label className="hermes-label">Protocol</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="hermes-btn"
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  backgroundColor: formData.protocol === 'https' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                  color: formData.protocol === 'https' ? '#34d399' : '#94a3b8',
+                  border: `1px solid ${formData.protocol === 'https' ? '#10b981' : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setFormData(prev => ({ ...prev, protocol: 'https' }))}
+              >
+                🔒 HTTPS (Secure)
+              </button>
+              <button
+                type="button"
+                className="hermes-btn"
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  backgroundColor: formData.protocol === 'http' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                  color: formData.protocol === 'http' ? '#38bdf8' : '#94a3b8',
+                  border: `1px solid ${formData.protocol === 'http' ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setFormData(prev => ({ ...prev, protocol: 'http' }))}
+              >
+                🌐 HTTP (Plain)
+              </button>
+            </div>
           </div>
 
+          {/* Custom Full URL (Overrides Host & Port if set) */}
           <div className="hermes-form-group">
-            <label className="hermes-label">Port</label>
+            <label className="hermes-label">Custom Full URL (Optional Override)</label>
             <input 
               type="text" 
               className="hermes-input"
-              value={formData.port}
-              onChange={e => setFormData(prev => ({ ...prev, port: e.target.value }))}
-              placeholder="8787"
-              required
+              value={formData.customUrl || ''}
+              onChange={e => setFormData(prev => ({ ...prev, customUrl: e.target.value }))}
+              placeholder="e.g. https://hermes.example.com or https://vps.mydomain.com:8787"
             />
+            <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+              If set, this full URL overrides Host and Port below.
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div className="hermes-form-group" style={{ flex: 2 }}>
+              <label className="hermes-label">Host IP / Domain</label>
+              <input 
+                type="text" 
+                className="hermes-input"
+                value={formData.host || ''}
+                onChange={e => setFormData(prev => ({ ...prev, host: e.target.value }))}
+                placeholder="192.168.1.160 or mydomain.com"
+                required={!formData.customUrl}
+              />
+            </div>
+
+            <div className="hermes-form-group" style={{ flex: 1 }}>
+              <label className="hermes-label">Port</label>
+              <input 
+                type="text" 
+                className="hermes-input"
+                value={formData.port || ''}
+                onChange={e => setFormData(prev => ({ ...prev, port: e.target.value }))}
+                placeholder="8787"
+                required={!formData.customUrl}
+              />
+            </div>
           </div>
 
           <div className="hermes-form-group">
@@ -550,7 +629,7 @@ function SettingsModal({ config, onClose, onSave }) {
             <input 
               type="password" 
               className="hermes-input"
-              value={formData.password}
+              value={formData.password || ''}
               onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
               placeholder="Leave empty if none"
             />

@@ -4,6 +4,8 @@
  */
 
 const STORAGE_KEYS = {
+  PROTOCOL: 'hermes_webui_protocol',
+  CUSTOM_URL: 'hermes_webui_custom_url',
   HOST: 'hermes_webui_host',
   PORT: 'hermes_webui_port',
   PASSWORD: 'hermes_webui_password',
@@ -34,20 +36,52 @@ export function getDefaultHost() {
 }
 
 const DEFAULT_CONFIG = {
+  protocol: 'https',
+  customUrl: '',
   host: '127.0.0.1',
   port: '8787',
   password: 'Jm*q*QO#tgPjXWqO5C8ePLl1tQj1^ol6%',
   autoConnect: true
 };
 
+export function getTargetUrl(cfg) {
+  if (!cfg) cfg = loadConfig();
+
+  // If user entered a full Custom URL (e.g. https://hermes.example.com or https://vps:8787)
+  if (cfg.customUrl && cfg.customUrl.trim().length > 0) {
+    let urlStr = cfg.customUrl.trim();
+    if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://')) {
+      urlStr = 'https://' + urlStr;
+    }
+    return urlStr.replace(/\/+$/, '');
+  }
+
+  const proto = cfg.protocol || 'https';
+  const host = cfg.host || getDefaultHost();
+  const port = cfg.port || '8787';
+
+  // Format clean URL (omit standard ports 80/443 if default)
+  if ((proto === 'https' && port === '443') || (proto === 'http' && port === '80')) {
+    return `${proto}://${host}`;
+  }
+  return `${proto}://${host}:${port}`;
+}
+
 export function loadConfig() {
   if (typeof window === 'undefined') return DEFAULT_CONFIG;
+
+  const nativeBridge = window.grexNativeBridge;
+  const nativeHost = nativeBridge ? nativeBridge.getHost() : null;
+  const nativePort = nativeBridge ? nativeBridge.getPort() : null;
+
   const savedHost = localStorage.getItem(STORAGE_KEYS.HOST);
   const effectiveDefaultHost = getDefaultHost();
-  
+
   return {
-    host: savedHost || effectiveDefaultHost,
-    port: localStorage.getItem(STORAGE_KEYS.PORT) || DEFAULT_CONFIG.port,
+    protocol: localStorage.getItem(STORAGE_KEYS.PROTOCOL) || DEFAULT_CONFIG.protocol,
+    customUrl: localStorage.getItem(STORAGE_KEYS.CUSTOM_URL) || DEFAULT_CONFIG.customUrl,
+    host: nativeHost || savedHost || effectiveDefaultHost,
+    port: nativePort || localStorage.getItem(STORAGE_KEYS.PORT) || DEFAULT_CONFIG.port,
     password: localStorage.getItem(STORAGE_KEYS.PASSWORD) || DEFAULT_CONFIG.password,
     autoConnect: localStorage.getItem(STORAGE_KEYS.AUTO_CONNECT) !== 'false'
   };
@@ -55,6 +89,8 @@ export function loadConfig() {
 
 export function saveConfig(cfg) {
   if (typeof window === 'undefined') return;
+  if (cfg.protocol !== undefined) localStorage.setItem(STORAGE_KEYS.PROTOCOL, cfg.protocol);
+  if (cfg.customUrl !== undefined) localStorage.setItem(STORAGE_KEYS.CUSTOM_URL, cfg.customUrl);
   if (cfg.host !== undefined) localStorage.setItem(STORAGE_KEYS.HOST, cfg.host);
   if (cfg.port !== undefined) localStorage.setItem(STORAGE_KEYS.PORT, cfg.port);
   if (cfg.password !== undefined) localStorage.setItem(STORAGE_KEYS.PASSWORD, cfg.password);
@@ -113,32 +149,47 @@ export async function executeCommand(command) {
   return { ok: false, error: 'No execution bridge available.' };
 }
 
-export async function checkServerHealth(host, port) {
+export async function checkServerHealth(cfgOrHost, port) {
+  let targetUrl = '';
+  if (typeof cfgOrHost === 'object' && cfgOrHost !== null) {
+    targetUrl = getTargetUrl(cfgOrHost);
+  } else if (typeof cfgOrHost === 'string') {
+    if (cfgOrHost.startsWith('http://') || cfgOrHost.startsWith('https://')) {
+      targetUrl = cfgOrHost;
+    } else {
+      targetUrl = `http://${cfgOrHost}:${port || '8787'}`;
+    }
+  } else {
+    targetUrl = getTargetUrl(loadConfig());
+  }
+
+  const probeUrl = `${targetUrl.replace(/\/+$/, '')}/login`;
+
   // 1. Capacitor Native HTTP for Mobile
   if (typeof window !== 'undefined' && window.Capacitor?.Plugins?.CapacitorHttp) {
     try {
       const res = await window.Capacitor.Plugins.CapacitorHttp.request({
         method: 'GET',
-        url: `http://${host}:${port}/login`,
+        url: probeUrl,
         headers: {}
       });
-      // 200, 302, 401 all indicate the server is alive
       if (res.status >= 200 && res.status < 500) {
-        return { online: true, statusCode: res.status };
+        return { online: true, statusCode: res.status, url: targetUrl };
       }
     } catch (err) {
       console.warn('[HermesWebUI] CapacitorHttp probe error:', err);
     }
   }
 
-  // 2. Use Native Node.js HTTP if available (Bypasses Browser CORS/401 alerts)
+  // 2. Native Node.js HTTP/HTTPS if available (Bypasses Browser CORS)
   try {
     if (typeof window !== 'undefined' && typeof window.require === 'function') {
-      const http = window.require('http');
-      if (http && typeof http.get === 'function') {
+      const isHttps = probeUrl.startsWith('https://');
+      const mod = window.require(isHttps ? 'https' : 'http');
+      if (mod && typeof mod.get === 'function') {
         return new Promise((resolve) => {
-          const req = http.get(`http://${host}:${port}/login`, { timeout: 2000 }, (res) => {
-            resolve({ online: true, statusCode: res.statusCode });
+          const req = mod.get(probeUrl, { timeout: 3000, rejectUnauthorized: false }, (res) => {
+            resolve({ online: true, statusCode: res.statusCode, url: targetUrl });
           });
           req.on('error', () => resolve({ online: false }));
           req.on('timeout', () => { req.destroy(); resolve({ online: false }); });
@@ -150,10 +201,10 @@ export async function checkServerHealth(host, port) {
   // 3. Browser Fetch probe fallback
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-    await fetch(`http://${host}:${port}/login`, { signal: controller.signal, mode: 'no-cors' });
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    await fetch(probeUrl, { signal: controller.signal, mode: 'no-cors' });
     clearTimeout(timeoutId);
-    return { online: true };
+    return { online: true, url: targetUrl };
   } catch (err) {
     return { online: false, error: err.message };
   }

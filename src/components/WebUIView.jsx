@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ServerOff, Play, RefreshCw } from 'lucide-react';
-import { startServer, isMobileOrCapacitor } from '../utils/serverBridge.js';
+import { startServer, isMobileOrCapacitor, getTargetUrl } from '../utils/serverBridge.js';
 
 export function WebUIView({ status, config, onRefresh }) {
   const [starting, setStarting] = useState(false);
-  const targetUrl = `http://${config.host}:${config.port}`;
+  const targetUrl = getTargetUrl(config);
   const isMobile = isMobileOrCapacitor();
 
   const handleStart = async () => {

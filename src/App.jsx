@@ -6,9 +6,14 @@ import {
   Settings, 
   ExternalLink, 
   Globe, 
-  Server,
-  X,
-  Save
+  Server, 
+  X, 
+  Save, 
+  AlertCircle, 
+  CheckCircle2, 
+  Smartphone, 
+  Monitor,
+  RefreshCw
 } from 'lucide-react';
 import { 
   loadConfig, 
@@ -16,23 +21,39 @@ import {
   checkServerHealth, 
   startServer, 
   stopServer, 
-  restartServer 
+  restartServer,
+  isMobileOrCapacitor,
+  getDefaultHost
 } from './utils/serverBridge.js';
 import './styles/styles.css';
 
 export default function HermesWebUIEngineApp() {
   const [config, setConfig] = useState(loadConfig);
-  const [status, setStatus] = useState({ online: false, checking: true });
+  const [status, setStatus] = useState({ online: false, checking: true, lastCheck: Date.now() });
   const [isNavHovered, setIsNavHovered] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loadingAction, setLoadingAction] = useState(null);
+  const [iframeKey, setIframeKey] = useState(1);
   const hideTimeoutRef = useRef(null);
+  const isMobile = isMobileOrCapacitor();
 
   const checkHealth = useCallback(async () => {
     setStatus(prev => ({ ...prev, checking: true }));
-    const res = await checkServerHealth(config.host, config.port);
-    setStatus({ online: res.online, checking: false });
-  }, [config.host, config.port]);
+    let res = await checkServerHealth(config.host, config.port);
+    
+    // If on mobile/Capacitor and 127.0.0.1 failed, try 10.0.2.2 automatically
+    if (!res.online && isMobile && config.host === '127.0.0.1') {
+      const fallbackRes = await checkServerHealth('10.0.2.2', config.port);
+      if (fallbackRes.online) {
+        const newCfg = { ...config, host: '10.0.2.2' };
+        setConfig(newCfg);
+        saveConfig(newCfg);
+        res = fallbackRes;
+      }
+    }
+
+    setStatus({ online: res.online, checking: false, statusCode: res.statusCode, lastCheck: Date.now() });
+  }, [config, isMobile]);
 
   useEffect(() => {
     checkHealth();
@@ -46,9 +67,11 @@ export default function HermesWebUIEngineApp() {
   };
 
   const handleMouseLeave = () => {
-    hideTimeoutRef.current = setTimeout(() => {
-      setIsNavHovered(false);
-    }, 400);
+    if (!isMobile) {
+      hideTimeoutRef.current = setTimeout(() => {
+        setIsNavHovered(false);
+      }, 400);
+    }
   };
 
   const handleStart = async () => {
@@ -81,6 +104,11 @@ export default function HermesWebUIEngineApp() {
     }
   };
 
+  const handleReloadFrame = () => {
+    setIframeKey(prev => prev + 1);
+    checkHealth();
+  };
+
   const targetUrl = `http://${config.host}:${config.port}`;
 
   return (
@@ -97,39 +125,57 @@ export default function HermesWebUIEngineApp() {
         margin: 0,
         padding: 0,
         overflow: 'hidden',
-        background: '#030712'
+        background: '#030712',
+        display: 'flex',
+        flexDirection: 'column'
       }}
     >
-      {/* Top Hover Trigger Area */}
+      {/* Top Hover Trigger Area (Desktop) */}
+      {!isMobile && (
+        <div 
+          className="hermes-top-hover-zone"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 36,
+            zIndex: 100
+          }}
+        >
+          <div className="hermes-top-edge-indicator" />
+        </div>
+      )}
+
+      {/* Floating Auto-Hide Top Control Bar */}
       <div 
-        className="hermes-top-hover-zone"
+        className={`hermes-floating-navbar ${isNavHovered || isMobile ? 'visible' : ''}`}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 36,
-          zIndex: 100
+          top: isMobile ? 'calc(env(safe-area-inset-top, 8px) + 36px)' : 0,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+          maxWidth: '92vw',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: '8px',
+          padding: '6px 14px'
         }}
-      >
-        <div className="hermes-top-edge-indicator" />
-      </div>
-
-      {/* Floating Auto-Hide Top Control Bar */}
-      <div 
-        className={`hermes-floating-navbar ${isNavHovered ? 'visible' : ''}`}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
       >
         <div className="hermes-nav-status">
           <Server size={14} color="#10b981" />
           <span className={`status-dot ${status.checking ? 'checking' : (status.online ? 'online' : 'offline')}`} />
-          <span>{status.online ? `Hermes (${config.host}:${config.port})` : 'Daemon Stopped'}</span>
+          <span style={{ fontSize: '11px', fontWeight: '600' }}>
+            {status.online ? `Hermes (${config.host}:${config.port})` : 'Offline'}
+          </span>
         </div>
 
-        <div className="hermes-nav-actions">
+        <div className="hermes-nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {status.online ? (
             <>
               <button 
@@ -137,6 +183,7 @@ export default function HermesWebUIEngineApp() {
                 onClick={handleRestart}
                 disabled={Boolean(loadingAction)}
                 title="Restart Hermes WebUI Daemon"
+                style={{ padding: '4px 8px', fontSize: '11px' }}
               >
                 <RotateCw size={11} className={loadingAction === 'restart' ? 'animate-spin' : ''} />
                 <span>Restart</span>
@@ -146,6 +193,7 @@ export default function HermesWebUIEngineApp() {
                 onClick={handleStop}
                 disabled={Boolean(loadingAction)}
                 title="Stop Hermes WebUI Daemon"
+                style={{ padding: '4px 8px', fontSize: '11px' }}
               >
                 <Square size={11} />
                 <span>Stop</span>
@@ -157,11 +205,21 @@ export default function HermesWebUIEngineApp() {
               onClick={handleStart}
               disabled={Boolean(loadingAction)}
               title="Start Hermes WebUI Daemon"
+              style={{ padding: '4px 10px', fontSize: '11px', backgroundColor: '#10b981', color: '#030712' }}
             >
               <Play size={11} />
               <span>Start Server</span>
             </button>
           )}
+
+          <button 
+            className="hermes-btn" 
+            onClick={handleReloadFrame}
+            title="Reload Iframe"
+            style={{ padding: '4px 8px' }}
+          >
+            <RefreshCw size={11} />
+          </button>
 
           <a 
             href={targetUrl} 
@@ -169,6 +227,7 @@ export default function HermesWebUIEngineApp() {
             rel="noreferrer"
             className="hermes-btn"
             title="Open in Browser Window"
+            style={{ padding: '4px 8px' }}
           >
             <ExternalLink size={11} />
           </a>
@@ -177,31 +236,184 @@ export default function HermesWebUIEngineApp() {
             className="hermes-btn" 
             onClick={() => setIsSettingsOpen(true)}
             title="Host & Port Settings"
+            style={{ padding: '4px 8px' }}
           >
             <Settings size={11} />
           </button>
         </div>
       </div>
 
-      {/* Full-Bleed 100% Iframe */}
-      <iframe 
-        src={targetUrl}
-        className="hermes-iframe-full"
-        title="Hermes WebUI"
-        allow="clipboard-read; clipboard-write; microphone; camera; display-capture"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          border: 'none',
-          margin: 0,
-          padding: 0,
-          display: 'block',
-          background: '#030712'
-        }}
-      />
+      {/* Main Content: Iframe or Offline Diagnostic Surface */}
+      {status.online ? (
+        <iframe 
+          key={iframeKey}
+          src={targetUrl}
+          className="hermes-iframe-full"
+          title="Hermes WebUI"
+          allow="clipboard-read; clipboard-write; microphone; camera; display-capture"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            margin: 0,
+            padding: 0,
+            display: 'block',
+            background: '#030712',
+            zIndex: 1
+          }}
+        />
+      ) : (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '32px 20px',
+          textAlign: 'center',
+          color: '#e2e8f0',
+          background: 'radial-gradient(circle at 50% 30%, #0f172a 0%, #030712 100%)',
+          zIndex: 2
+        }}>
+          <div style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '16px',
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(249, 115, 22, 0.2))',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '20px'
+          }}>
+            <AlertCircle size={28} color="#f87171" />
+          </div>
+
+          <h2 style={{ fontSize: '20px', fontWeight: '700', margin: '0 0 8px 0', color: '#f8fafc' }}>
+            Hermes Server Offline
+          </h2>
+          
+          <p style={{ fontSize: '13px', color: '#94a3b8', maxWidth: '380px', margin: '0 0 24px 0', lineHeight: '1.5' }}>
+            Could not reach Hermes WebUI at <code style={{ color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>{config.host}:{config.port}</code>.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '300px' }}>
+            <button
+              onClick={handleStart}
+              disabled={Boolean(loadingAction)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '12px 18px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                fontSize: '14px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)'
+              }}
+            >
+              <Play size={16} />
+              <span>Start Hermes Daemon</span>
+            </button>
+
+            <button
+              onClick={checkHealth}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '10px 16px',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                color: '#e2e8f0',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '12px',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              <RotateCw size={14} />
+              <span>Retry Connection</span>
+            </button>
+
+            {isMobile && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button
+                  onClick={() => {
+                    const newCfg = { ...config, host: '10.0.2.2' };
+                    setConfig(newCfg);
+                    saveConfig(newCfg);
+                    setTimeout(checkHealth, 300);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '8px 10px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    backgroundColor: config.host === '10.0.2.2' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                    color: config.host === '10.0.2.2' ? '#c084fc' : '#94a3b8',
+                    border: `1px solid ${config.host === '10.0.2.2' ? '#a855f7' : 'rgba(255, 255, 255, 0.1)'}`,
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📱 10.0.2.2 (AVD)
+                </button>
+                <button
+                  onClick={() => {
+                    const newCfg = { ...config, host: '127.0.0.1' };
+                    setConfig(newCfg);
+                    saveConfig(newCfg);
+                    setTimeout(checkHealth, 300);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '8px 10px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    backgroundColor: config.host === '127.0.0.1' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                    color: config.host === '127.0.0.1' ? '#c084fc' : '#94a3b8',
+                    border: `1px solid ${config.host === '127.0.0.1' ? '#a855f7' : 'rgba(255, 255, 255, 0.1)'}`,
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚡ 127.0.0.1 (ADB)
+                </button>
+              </div>
+            )}
+
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                padding: '8px 12px',
+                background: 'transparent',
+                color: '#94a3b8',
+                border: 'none',
+                fontSize: '12px',
+                cursor: 'pointer',
+                marginTop: '4px'
+              }}
+            >
+              <Settings size={13} />
+              <span>Configure Host & Port</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Settings Dialog */}
       {isSettingsOpen && (
@@ -248,60 +460,62 @@ function SettingsModal({ config, onClose, onSave }) {
             <button 
               type="button" 
               className="hermes-btn" 
-              onClick={() => setFormData(prev => ({ ...prev, host: '127.0.0.1', port: '8787' }))}
-              style={{ flex: 1, justifyContent: 'center' }}
+              style={{ flex: 1, padding: 6, fontSize: 11 }}
+              onClick={() => setFormData(prev => ({ ...prev, host: '127.0.0.1' }))}
             >
-              Set Localhost (127.0.0.1)
+              <Monitor size={12} style={{ marginRight: 4 }} /> 127.0.0.1
             </button>
             <button 
               type="button" 
               className="hermes-btn" 
-              onClick={() => setFormData(prev => ({ ...prev, host: '192.168.1.160', port: '8787' }))}
-              style={{ flex: 1, justifyContent: 'center' }}
+              style={{ flex: 1, padding: 6, fontSize: 11 }}
+              onClick={() => setFormData(prev => ({ ...prev, host: '10.0.2.2' }))}
             >
-              Set Phone Wi-Fi (192.168.1.160)
+              <Smartphone size={12} style={{ marginRight: 4 }} /> 10.0.2.2 (AVD)
             </button>
           </div>
 
           <div className="hermes-form-group">
-            <label className="hermes-form-label">Host IP / Domain</label>
+            <label className="hermes-label">Host IP / Domain</label>
             <input 
               type="text" 
               className="hermes-input"
               value={formData.host}
-              onChange={e => setFormData({ ...formData, host: e.target.value })}
+              onChange={e => setFormData(prev => ({ ...prev, host: e.target.value }))}
+              placeholder="127.0.0.1 or 10.0.2.2"
               required
             />
           </div>
 
           <div className="hermes-form-group">
-            <label className="hermes-form-label">Port</label>
+            <label className="hermes-label">Port</label>
             <input 
               type="text" 
               className="hermes-input"
               value={formData.port}
-              onChange={e => setFormData({ ...formData, port: e.target.value })}
+              onChange={e => setFormData(prev => ({ ...prev, port: e.target.value }))}
+              placeholder="8787"
               required
             />
           </div>
 
           <div className="hermes-form-group">
-            <label className="hermes-form-label">Password</label>
+            <label className="hermes-label">Password (Optional / Auto-Auth)</label>
             <input 
               type="password" 
               className="hermes-input"
               value={formData.password}
-              onChange={e => setFormData({ ...formData, password: e.target.value })}
+              onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+              placeholder="Leave empty if none"
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
             <button type="button" className="hermes-btn" onClick={onClose}>
               Cancel
             </button>
             <button type="submit" className="hermes-btn primary">
-              <Save size={12} />
-              <span>Save Changes</span>
+              <Save size={12} style={{ marginRight: 4 }} /> Save & Connect
             </button>
           </div>
         </form>

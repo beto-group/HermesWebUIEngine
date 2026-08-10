@@ -1,6 +1,6 @@
 /**
- * Sovereign Node.js Child Process & Server Bridge
- * Uses zero-dependency native Node.js / Electron / Sidecar IPC.
+ * Sovereign Node.js Child Process, Capacitor Mobile & Server Bridge
+ * Uses zero-dependency native Node.js / Electron / Sidecar IPC / Capacitor HTTP.
  */
 
 const STORAGE_KEYS = {
@@ -9,6 +9,25 @@ const STORAGE_KEYS = {
   PASSWORD: 'hermes_webui_password',
   AUTO_CONNECT: 'hermes_webui_auto_connect'
 };
+
+export function isMobileOrCapacitor() {
+  if (typeof window === 'undefined') return false;
+  return !!(
+    window.Capacitor?.isNativePlatform?.() ||
+    window.Capacitor?.isNative ||
+    (typeof window.Capacitor?.getPlatform === 'function' && window.Capacitor.getPlatform() !== 'web') ||
+    navigator.userAgent.includes('Android') ||
+    navigator.userAgent.includes('iPhone') ||
+    navigator.userAgent.includes('iPad')
+  );
+}
+
+export function getDefaultHost() {
+  if (isMobileOrCapacitor()) {
+    return '10.0.2.2'; // Standard Android QEMU/AVD loopback to macOS host
+  }
+  return '127.0.0.1';
+}
 
 const DEFAULT_CONFIG = {
   host: '127.0.0.1',
@@ -19,8 +38,11 @@ const DEFAULT_CONFIG = {
 
 export function loadConfig() {
   if (typeof window === 'undefined') return DEFAULT_CONFIG;
+  const savedHost = localStorage.getItem(STORAGE_KEYS.HOST);
+  const effectiveDefaultHost = getDefaultHost();
+  
   return {
-    host: localStorage.getItem(STORAGE_KEYS.HOST) || DEFAULT_CONFIG.host,
+    host: savedHost || effectiveDefaultHost,
     port: localStorage.getItem(STORAGE_KEYS.PORT) || DEFAULT_CONFIG.port,
     password: localStorage.getItem(STORAGE_KEYS.PASSWORD) || DEFAULT_CONFIG.password,
     autoConnect: localStorage.getItem(STORAGE_KEYS.AUTO_CONNECT) !== 'false'
@@ -72,8 +94,9 @@ export async function executeCommand(command) {
   }
 
   // 3. Sidecar Daemon API (:7777)
+  const sidecarHost = isMobileOrCapacitor() ? '10.0.2.2' : '127.0.0.1';
   try {
-    const res = await fetch('http://127.0.0.1:7777/api/exec', {
+    const res = await fetch(`http://${sidecarHost}:7777/api/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command })
@@ -87,14 +110,30 @@ export async function executeCommand(command) {
 }
 
 export async function checkServerHealth(host, port) {
-  // 1. Use Native Node.js HTTP if available (Bypasses Browser CORS/401 alerts)
+  // 1. Capacitor Native HTTP for Mobile
+  if (typeof window !== 'undefined' && window.Capacitor?.Plugins?.CapacitorHttp) {
+    try {
+      const res = await window.Capacitor.Plugins.CapacitorHttp.request({
+        method: 'GET',
+        url: `http://${host}:${port}/login`,
+        headers: {}
+      });
+      // 200, 302, 401 all indicate the server is alive
+      if (res.status >= 200 && res.status < 500) {
+        return { online: true, statusCode: res.status };
+      }
+    } catch (err) {
+      console.warn('[HermesWebUI] CapacitorHttp probe error:', err);
+    }
+  }
+
+  // 2. Use Native Node.js HTTP if available (Bypasses Browser CORS/401 alerts)
   try {
     if (typeof window !== 'undefined' && typeof window.require === 'function') {
       const http = window.require('http');
       if (http && typeof http.get === 'function') {
         return new Promise((resolve) => {
           const req = http.get(`http://${host}:${port}/login`, { timeout: 2000 }, (res) => {
-            // Any HTTP status code from the server (200, 302, 401) proves it's online
             resolve({ online: true, statusCode: res.statusCode });
           });
           req.on('error', () => resolve({ online: false }));
@@ -104,7 +143,7 @@ export async function checkServerHealth(host, port) {
     }
   } catch (_) {}
 
-  // 2. Fetch probe fallback
+  // 3. Browser Fetch probe fallback
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);

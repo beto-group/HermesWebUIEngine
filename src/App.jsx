@@ -61,6 +61,51 @@ export default function HermesWebUIEngineApp() {
     return () => clearInterval(interval);
   }, [checkHealth]);
 
+  const [showMobileHud, setShowMobileHud] = useState(false);
+  const mobileHudTimeoutRef = useRef(null);
+  const lastTapTimeRef = useRef(0);
+  const tapCountRef = useRef(0);
+
+  const resetMobileHudTimer = useCallback((duration = 6000) => {
+    setShowMobileHud(true);
+    if (mobileHudTimeoutRef.current) clearTimeout(mobileHudTimeoutRef.current);
+    mobileHudTimeoutRef.current = setTimeout(() => {
+      setShowMobileHud(false);
+    }, duration);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleTap = (e) => {
+      if (e.touches && e.touches.length >= 3) {
+        resetMobileHudTimer(6000);
+        return;
+      }
+      if (e.type === 'click' || e.type === 'touchend') {
+        const now = Date.now();
+        if (now - lastTapTimeRef.current < 450) {
+          tapCountRef.current += 1;
+          if (tapCountRef.current >= 3) {
+            resetMobileHudTimer(6000);
+            tapCountRef.current = 0;
+          }
+        } else {
+          tapCountRef.current = 1;
+        }
+        lastTapTimeRef.current = now;
+      }
+    };
+
+    window.addEventListener('touchstart', handleTap, { passive: true });
+    window.addEventListener('click', handleTap);
+    return () => {
+      window.removeEventListener('touchstart', handleTap);
+      window.removeEventListener('click', handleTap);
+      if (mobileHudTimeoutRef.current) clearTimeout(mobileHudTimeoutRef.current);
+    };
+  }, [isMobile, resetMobileHudTimer]);
+
   const handleMouseEnter = () => {
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     setIsNavHovered(true);
@@ -151,9 +196,10 @@ export default function HermesWebUIEngineApp() {
 
       {/* Floating Auto-Hide Top Control Bar */}
       <div 
-        className={`hermes-floating-navbar ${isNavHovered || isMobile ? 'visible' : ''}`}
+        className={`hermes-floating-navbar ${(isMobile ? showMobileHud : isNavHovered) ? 'visible' : ''}`}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onClick={() => isMobile && resetMobileHudTimer(6000)}
         style={{
           position: 'absolute',
           top: isMobile ? 'calc(env(safe-area-inset-top, 8px) + 36px)' : 0,

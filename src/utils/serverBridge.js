@@ -23,8 +23,12 @@ export function isMobileOrCapacitor() {
 }
 
 export function getDefaultHost() {
+  if (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return window.location.hostname;
+  }
   if (isMobileOrCapacitor()) {
-    return '10.0.2.2'; // Standard Android QEMU/AVD loopback to macOS host
+    // If running in QEMU emulator use 10.0.2.2; on physical phone set your Mac's Wi-Fi IP (e.g. 192.168.1.160)
+    return '192.168.1.160';
   }
   return '127.0.0.1';
 }
